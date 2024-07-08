@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API 测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        .container {
+            max-width: 600px;
+            margin: auto;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+        input[type="text"], select {
+            width: 100%;
+            padding: 8px;
+            box-sizing: border-box;
+        }
+        button {
+            padding: 10px 15px;
+            width: 100%;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        textarea {
+            width: 100%;
+            height: 200px;
+            padding: 8px;
+            box-sizing: border-box;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>API 测试</h1>
+        <div class="form-group">
+            <label for="url">API URL:</label>
+            <input type="text" id="url" name="url">
+        </div>
+        <div class="form-group">
+            <label for="auth">API 令牌:</label>
+            <input type="text" id="auth" name="auth">
+        </div>
+        <div class="form-group">
+            <label for="model">选择模型:</label>
+            <select id="model" name="model"></select>
+        </div>
+        <div class="form-group">
+            <button onclick="sendRequest()">开始测试</button>
+        </div>
+        <div class="form-group">
+            <button onclick="getModels()">获取模型</button>
+        </div>
+        <div class="form-group">
+            <label for="response">响应:</label>
+            <textarea id="response" readonly></textarea>
+        </div>
+    </div>
+
+    <script>
+        const urlInput = document.getElementById('url');
+        const authInput = document.getElementById('auth');
+        const modelSelect = document.getElementById('model');
+        const responseTextArea = document.getElementById('response');
+
+        function sendRequest() {
+            const url = urlInput.value.endsWith('/v1/chat/completions') ? urlInput.value : urlInput.value + '/v1/chat/completions';
+            const model = modelSelect.value || "gpt-3.5-turbo";
+            const payload = {
+                "model": model,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "Hello!"
+                    }
+                ]
+            };
+            const headers = {
+                'Accept': 'application/json',
+                'User-Agent': 'Apifox/1.0.0 (https://apifox.com)',
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authInput.value}`
+            };
+
+            fetch(url, {
+                method: 'POST',
+                headers: headers,
+                body: JSON.stringify(payload)
+            })
+            .then(response => response.json())
+            .then(data => {
+                responseTextArea.value = JSON.stringify(data, null, 4);
+                alert("测试成功");
+            })
+            .catch(error => {
+                responseTextArea.value = `请求失败: ${error}`;
+                alert(`请求失败: ${error}`);
+            });
+        }
+
+        function getModels() {
+            const url = urlInput.value.endsWith('/v1/models') ? urlInput.value : urlInput.value + '/v1/models';
+            const headers = {
+                'Authorization': `Bearer ${authInput.value}`
+            };
+
+            fetch(url, {
+                method: 'GET',
+                headers: headers
+            })
+            .then(response => response.json())
+            .then(data => {
+                const modelIds = data.data.map(model => model.id);
+                modelSelect.innerHTML = '';
+                modelIds.forEach(modelId => {
+                    const option = document.createElement('option');
+                    option.value = modelId;
+                    option.text = modelId;
+                    modelSelect.add(option);
+                });
+                responseTextArea.value = modelIds.join(",\n");
+                alert("已成功获取模型");
+            })
+            .catch(error => {
+                responseTextArea.value = `获取模型失败: ${error}`;
+                alert(`获取模型失败: ${error}`);
+            });
+        }
+    </script>
+</body>
+</html>
