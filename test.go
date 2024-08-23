@@ -1,16 +1,18 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"net/http"
+	"strings"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
-	"io/ioutil"
-	"net/http"
-	"strings"
 )
 
 type BillingData struct {
@@ -38,7 +40,7 @@ type CompletionResponse struct {
 func main() {
 	a := app.New()
 	w := a.NewWindow("API工具")
-	w.Resize(fyne.NewSize(400, 450))
+	w.Resize(fyne.NewSize(600, 600))
 
 	apiURL := widget.NewEntry()
 	apiURL.SetPlaceHolder("请输入API URL")
@@ -46,7 +48,11 @@ func main() {
 	apiKey := widget.NewEntry()
 	apiKey.SetPlaceHolder("请输入您的API Key")
 
-	output := widget.NewLabel("输出将在这里展示...\n")
+	output := widget.NewMultiLineEntry()
+	output.SetPlaceHolder("输出将在这里展示...\n")
+	output.SetMinRowsVisible(15) // 确保显示至少15行
+
+	outputContainer := container.NewMax(output) // 使用Max容器让多行文本区撑满
 
 	getBalance := widget.NewButton("获取余额", func() {
 		if err := validateInputs(apiURL.Text, apiKey.Text); err != nil {
@@ -74,8 +80,8 @@ func main() {
 			return
 		}
 
-		startDate := "2021-01-01" // 示例开始日期，需要根据需要动态设置
-		endDate := "2022-01-01"   // 示例结束日期，需要根据需要动态设置
+		startDate := "2021-01-01"
+		endDate := "2022-01-01"
 
 		billingURL := fmt.Sprintf("%s/v1/dashboard/billing/usage?start_date=%s&end_date=%s", strings.TrimSpace(apiURL.Text), startDate, endDate)
 		req, _ = http.NewRequest("GET", billingURL, nil)
@@ -96,7 +102,8 @@ func main() {
 		}
 
 		remaining := data.HardLimitUSD - billingData.TotalUsage/100
-		output.SetText(fmt.Sprintf("总额: %.4f USD\n已用: %.4f USD\n剩余: %.4f USD", data.HardLimitUSD, billingData.TotalUsage/100, remaining))
+		text := fmt.Sprintf("总额: %.4f USD\n已用: %.4f USD\n剩余: %.4f USD", data.HardLimitUSD, billingData.TotalUsage/100, remaining)
+		output.SetText(text)
 	})
 
 	getModels := widget.NewButton("获取模型列表", func() {
@@ -128,7 +135,8 @@ func main() {
 		for i, model := range modelData.Data {
 			models[i] = model.ID
 		}
-		output.SetText(fmt.Sprintf("模型列表:\n%s", strings.Join(models, "\n")))
+		text := fmt.Sprintf("模型列表:\n%s", strings.Join(models, "\n"))
+		output.SetText(text)
 	})
 
 	testModel := widget.NewButton("测试模型", func() {
@@ -137,33 +145,46 @@ func main() {
 
 		fullResponseCheckbox := widget.NewCheck("返回完整信息", nil)
 
+		var modal *widget.PopUp
+		submitButton := widget.NewButton("提交", func() {
+			modelName := modelNameEntry.Text
+			if modelName == "" {
+				modelName = "gpt-3.5-turbo"
+			}
+			testModelRequest(apiURL.Text, apiKey.Text, modelName, fullResponseCheckbox.Checked, output, w)
+			if modal != nil {
+				modal.Hide()
+			}
+		})
+
 		content := container.NewVBox(
 			widget.NewLabel("请输入模型名称 (默认使用 gpt-3.5-turbo):"),
 			modelNameEntry,
 			fullResponseCheckbox,
-			widget.NewButton("提交", func() {
-				modelName := modelNameEntry.Text
-				if modelName == "" {
-					modelName = "gpt-3.5-turbo"
-				}
-				testModelRequest(apiURL.Text, apiKey.Text, modelName, fullResponseCheckbox.Checked, output, w)
-			}),
 		)
 
-		modal := widget.NewModalPopUp(content, w.Canvas())
+		closeButton := widget.NewButton("关闭", func() {
+			if modal != nil {
+				modal.Hide()
+			}
+		})
+
+		content.Add(container.NewHBox(submitButton, closeButton))
+
+		modal = widget.NewModalPopUp(content, w.Canvas())
 		modal.Resize(fyne.NewSize(300, 200))
 		modal.Show()
 	})
 
 	layout := container.NewVBox(
-		widget.NewLabel("API URL: "),
+		widget.NewLabel("API URL:"),
 		apiURL,
-		widget.NewLabel("API Key: "),
+		widget.NewLabel("API Key:"),
 		apiKey,
 		getBalance,
 		getModels,
 		testModel,
-		output,
+		outputContainer, // 使用指定大小的容器
 	)
 
 	w.SetContent(layout)
@@ -177,7 +198,7 @@ func validateInputs(apiURL, apiKey string) error {
 	return nil
 }
 
-func testModelRequest(apiURL, apiKey, modelName string, fullResponse bool, output *widget.Label, w fyne.Window) {
+func testModelRequest(apiURL, apiKey, modelName string, fullResponse bool, output *widget.Entry, w fyne.Window) {
 	if err := validateInputs(apiURL, apiKey); err != nil {
 		dialog.ShowError(err, w)
 		return
@@ -212,9 +233,15 @@ func testModelRequest(apiURL, apiKey, modelName string, fullResponse bool, outpu
 	}
 
 	if fullResponse {
-		output.SetText(fmt.Sprintf("完整响应:\n%s", string(body)))
+		var prettyJSON bytes.Buffer
+		error := json.Indent(&prettyJSON, body, "", "  ")
+		if error != nil {
+			output.SetText(fmt.Sprintf("格式化JSON失败: %v", error))
+		} else {
+			output.SetText(prettyJSON.String())
+		}
 	} else if len(completionResponse.Choices) > 0 {
-		output.SetText(fmt.Sprintf("模型回应:\n%s", completionResponse.Choices[0].Message.Content))
+		output.SetText(completionResponse.Choices[0].Message.Content)
 	} else {
 		output.SetText("未收到模型回应")
 	}
